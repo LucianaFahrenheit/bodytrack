@@ -39,16 +39,20 @@ function authView(){
  document.querySelectorAll('input').forEach(i=>i.onkeydown=e=>{if(e.key==='Enter')$('#go').click()});
 }
 async function doReg(){
- const nome=$('#nome').value.trim(),email=$('#email').value.trim().toLowerCase(),s=$('#senha').value,s2=$('#senha2').value;let ok=true;
+ const nome=$('#nome').value.trim(),email=$('#email').value.trim().toLowerCase(),s=$('#senha').value,s2=$('#senha2').value;
  ['nome','email','senha','senha2'].forEach(i=>fe(i));
- if(nome.length<2){fe('nome','Informe seu nome.');ok=false}
- if(!/^\S+@\S+\.\S+$/.test(email)){fe('email','Informe um e-mail válido.');ok=false}
- else if(DB.users.some(u=>u.email===email)){fe('email','Este e-mail já está cadastrado.');ok=false}
- if(s.length<6){fe('senha','A senha precisa ter ao menos 6 caracteres.');ok=false}
- if(s!==s2){fe('senha2','As senhas não coincidem.');ok=false}
- if(!ok)return;
- const salt=uid()+uid();const u={id:uid(),nome,email,salt,hash:await hash(s,salt),altura:null,nasc:''};
- DB.users.push(u);save();S.uid=u.id;sv('bt_sess',u.id);S.view='inicio';toast('Conta criada com sucesso.');render();
+
+ const res=await fetch('/api/cadastro',{
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({nome,email,senha:s,senha2:s2})
+ });
+ const data=await res.json();
+ if(!res.ok){fe(data.campo||'email',data.erro);return}
+
+ DB.users=[{id:data.usuario.id,nome:data.usuario.nome,email:data.usuario.email,altura:null,nasc:''}];
+ S.uid=data.usuario.id;sv('bt_sess',data.usuario.id);S.view='inicio';
+ toast(data.mensagem);render();
 }
 async function doLogin(){
  const email=$('#email').value.trim().toLowerCase(),s=$('#senha').value;fe('email');fe('senha');
