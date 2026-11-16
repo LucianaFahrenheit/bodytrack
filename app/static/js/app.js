@@ -7,7 +7,7 @@ function ld(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(e){retu
 function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){toast('Não foi possível salvar neste navegador.',1)}}
 let DB=ld('bt_db',{users:[],recs:[]});
 const save=()=>sv('bt_db',DB);
-try{S.uid=ld('bt_sess',null)}catch(e){}
+S.uid=null;
 const me=()=>DB.users.find(u=>u.id===S.uid);
 const mine=()=>DB.recs.filter(r=>r.uid===S.uid).sort((a,b)=>a.data<b.data?-1:1);
 const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
@@ -38,30 +38,32 @@ function authView(){
  $('#go').onclick=r?doReg:doLogin;
  document.querySelectorAll('input').forEach(i=>i.onkeydown=e=>{if(e.key==='Enter')$('#go').click()});
 }
+function sync(u){const x=DB.users.find(y=>y.id===u.id);if(x){x.nome=u.nome;x.email=u.email}else DB.users.push({id:u.id,nome:u.nome,email:u.email,altura:null,nasc:''});save()}
 async function doReg(){
  const nome=$('#nome').value.trim(),email=$('#email').value.trim().toLowerCase(),s=$('#senha').value,s2=$('#senha2').value;
  ['nome','email','senha','senha2'].forEach(i=>fe(i));
-
- const res=await fetch('/api/cadastro',{
-  method:'POST',
-  headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({nome,email,senha:s,senha2:s2})
- });
- const data=await res.json();
+ let res,data;
+ try{
+  res=await fetch('/api/cadastro',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nome,email,senha:s,senha2:s2})});
+  data=await res.json();
+ }catch(e){toast('Não foi possível falar com o servidor.',1);return}
  if(!res.ok){fe(data.campo||'email',data.erro);return}
-
- DB.users=[{id:data.usuario.id,nome:data.usuario.nome,email:data.usuario.email,altura:null,nasc:''}];
- S.uid=data.usuario.id;sv('bt_sess',data.usuario.id);S.view='inicio';
+ sync(data.usuario);S.uid=data.usuario.id;S.view='inicio';
  toast(data.mensagem);render();
 }
 async function doLogin(){
  const email=$('#email').value.trim().toLowerCase(),s=$('#senha').value;fe('email');fe('senha');
  if(!email||!s){fe('senha','Informe e-mail e senha.');return}
- const u=DB.users.find(x=>x.email===email);
- if(!u||await hash(s,u.salt)!==u.hash){fe('senha','E-mail ou senha incorretos.');return}
- S.uid=u.id;sv('bt_sess',u.id);S.view='inicio';toast('Bem-vinda de volta, '+u.nome.split(' ')[0]+'.');render();
+ let res,data;
+ try{
+  res=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,senha:s})});
+  data=await res.json();
+ }catch(e){toast('Não foi possível falar com o servidor.',1);return}
+ if(!res.ok){fe(data.campo||'senha',data.erro);return}
+ sync(data.usuario);S.uid=data.usuario.id;S.view='inicio';
+ toast(data.mensagem);render();
 }
-function logout(){S.uid=null;sv('bt_sess',null);S.reg=false;toast('Você saiu da conta.');render()}
+async function logout(){try{await fetch('/api/logout',{method:'POST'})}catch(e){}S.uid=null;S.reg=false;toast('Você saiu da conta.');render()}
 
 /* ---------- SHELL ---------- */
 const NAV=[['inicio','Início'],['registrar','Registrar'],['historico','Histórico'],['evolucao','Evolução'],['perfil','Perfil']];
@@ -214,4 +216,10 @@ function perfil(){
   if(!this.dataset.c){this.dataset.c=1;this.textContent='Clique de novo para confirmar';return}
   DB.recs=DB.recs.filter(r=>r.uid!==u.id);DB.users=DB.users.filter(x=>x.id!==u.id);save();logout();};
 }
-render();
+(async()=>{
+ try{
+  const r=await fetch('/api/me');
+  if(r.ok){const d=await r.json();sync(d.usuario);S.uid=d.usuario.id}
+ }catch(e){}
+ render();
+})();
