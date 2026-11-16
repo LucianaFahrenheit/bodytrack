@@ -30,6 +30,5 @@
 
 ## Testes automatizados
 Comando: `pytest`. Resultado: 15 testes executados, 15 aprovados (arquivo `tests/test_basico.py`). Print em `pytest.png`.
-
 ## Resumo
 25 casos executados: 25 aprovados, 0 reprovados.

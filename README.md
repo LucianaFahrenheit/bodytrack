@@ -13,7 +13,7 @@ Projeto Integrador Transdisciplinar II.
 ## Como instalar e rodar
 1. Clone o repositório e entre na pasta:
    ```
-   git clone https://github.com/SEU-USUARIO/bodytrack.git
+   git clone https://github.com/lucianamoura9/bodytrack
    cd bodytrack
    ```
 2. Crie e ative o ambiente virtual (Windows PowerShell):

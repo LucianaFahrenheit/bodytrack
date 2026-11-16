@@ -8,6 +8,9 @@ load_dotenv()
 
 def get_db_connection():
     try:
+        url = os.getenv("DATABASE_URL")  # usado na hospedagem (Render)
+        if url:
+            return psycopg2.connect(url, cursor_factory=RealDictCursor)
         return psycopg2.connect(
             host=os.getenv("DB_HOST", "localhost"),
             port=os.getenv("DB_PORT", "5432"),
