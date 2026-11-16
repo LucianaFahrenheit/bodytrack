@@ -3,13 +3,17 @@ const LBL=Object.fromEntries([['peso','Peso (kg)'],['altura','Altura (cm)'],...M
 let S={uid:null,view:'inicio',edit:null,metric:'peso',reg:false,a:'',b:''};
 const $=s=>document.querySelector(s);
 const esc=t=>String(t??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-function ld(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}}
-function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){toast('Não foi possível salvar neste navegador.',1)}}
-let DB=ld('bt_db',{users:[],recs:[]});
-const save=()=>sv('bt_db',DB);
-S.uid=null;
-const me=()=>DB.users.find(u=>u.id===S.uid);
-const mine=()=>DB.recs.filter(r=>r.uid===S.uid).sort((a,b)=>a.data<b.data?-1:1);
+let USER=null,REC=[];
+const me=()=>USER;
+const mine=()=>REC.slice().sort((a,b)=>a.data<b.data?-1:1);
+async function api(url,method,body){
+ try{
+  const r=await fetch(url,{method:method||'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  let d={};try{d=await r.json()}catch(e){}
+  return {ok:r.ok,status:r.status,data:d};
+ }catch(e){toast('Não foi possível falar com o servidor.',1);return null}
+}
+async function loadRecs(){const r=await api('/api/registros');REC=r&&r.ok?r.data.registros:[]}
 const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
 const fd=d=>d.split('-').reverse().join('/');
 const nf=n=>n==null?'–':(+n).toLocaleString('pt-BR',{maximumFractionDigits:1});
@@ -38,32 +42,27 @@ function authView(){
  $('#go').onclick=r?doReg:doLogin;
  document.querySelectorAll('input').forEach(i=>i.onkeydown=e=>{if(e.key==='Enter')$('#go').click()});
 }
-function sync(u){const x=DB.users.find(y=>y.id===u.id);if(x){x.nome=u.nome;x.email=u.email}else DB.users.push({id:u.id,nome:u.nome,email:u.email,altura:null,nasc:''});save()}
+async function afterAuth(){
+ const m=await api('/api/me');if(!m||!m.ok)return;
+ USER=m.data.usuario;await loadRecs();S.view='inicio';render();
+}
 async function doReg(){
  const nome=$('#nome').value.trim(),email=$('#email').value.trim().toLowerCase(),s=$('#senha').value,s2=$('#senha2').value;
  ['nome','email','senha','senha2'].forEach(i=>fe(i));
- let res,data;
- try{
-  res=await fetch('/api/cadastro',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nome,email,senha:s,senha2:s2})});
-  data=await res.json();
- }catch(e){toast('Não foi possível falar com o servidor.',1);return}
- if(!res.ok){fe(data.campo||'email',data.erro);return}
- sync(data.usuario);S.uid=data.usuario.id;S.view='inicio';
- toast(data.mensagem);render();
+ const r=await api('/api/cadastro','POST',{nome,email,senha:s,senha2:s2});
+ if(!r)return;
+ if(!r.ok){fe(r.data.campo||'email',r.data.erro||'Erro no servidor. Tente de novo.');return}
+ toast(r.data.mensagem);await afterAuth();
 }
 async function doLogin(){
  const email=$('#email').value.trim().toLowerCase(),s=$('#senha').value;fe('email');fe('senha');
  if(!email||!s){fe('senha','Informe e-mail e senha.');return}
- let res,data;
- try{
-  res=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,senha:s})});
-  data=await res.json();
- }catch(e){toast('Não foi possível falar com o servidor.',1);return}
- if(!res.ok){fe(data.campo||'senha',data.erro);return}
- sync(data.usuario);S.uid=data.usuario.id;S.view='inicio';
- toast(data.mensagem);render();
+ const r=await api('/api/login','POST',{email,senha:s});
+ if(!r)return;
+ if(!r.ok){fe(r.data.campo||'senha',r.data.erro||'Erro no servidor. Tente de novo.');return}
+ toast(r.data.mensagem);await afterAuth();
 }
-async function logout(){try{await fetch('/api/logout',{method:'POST'})}catch(e){}S.uid=null;S.reg=false;toast('Você saiu da conta.');render()}
+async function logout(){await api('/api/logout','POST');USER=null;REC=[];S.reg=false;toast('Você saiu da conta.');render()}
 
 /* ---------- SHELL ---------- */
 const NAV=[['inicio','Início'],['registrar','Registrar'],['historico','Histórico'],['evolucao','Evolução'],['perfil','Perfil']];
@@ -100,7 +99,7 @@ const delta=(a,b,inv)=>{if(a==null||b==null)return'';const d=b-a;if(Math.abs(d)<
 /* ---------- INÍCIO ---------- */
 function inicio(){
  const rs=mine(),u=me(),sp=series(rs,'peso');
- const h=lastOf(rs,'altura')??u.altura,w=lastOf(rs,'peso');
+ const h=lastOf(rs,'altura'),w=lastOf(rs,'peso');
  const imc=h&&w?w/Math.pow(h/100,2):null;
  const cls=imc==null?'':imc<18.5?'abaixo do peso':imc<25?'faixa normal':imc<30?'sobrepeso':'obesidade';
  $('#main').innerHTML=`<h2>Olá, ${esc(u.nome.split(' ')[0])}</h2>
@@ -118,9 +117,9 @@ function inicio(){
 
 /* ---------- REGISTRAR / EDITAR ---------- */
 function registrar(){
- const r=S.edit?DB.recs.find(x=>x.id===S.edit&&x.uid===S.uid):null;
+ const r=S.edit?REC.find(x=>String(x.id)===String(S.edit)):null;
  const v=k=>r&&r[k]!=null?r[k]:'';
- const h=r?r.altura:(lastOf(mine(),'altura')??me().altura);
+ const h=r?r.altura:lastOf(mine(),'altura');
  $('#main').innerHTML=`<h2>${r?'Editar registro':'Novo registro'}</h2><div class="card">
  <div class="f">
  <div><label for="data">Data</label><input id="data" type="date" max="${today()}" value="${r?r.data:today()}"><p class="err" id="e-data"></p></div>
@@ -133,7 +132,7 @@ function registrar(){
  $('#sv').onclick=()=>saveRec(r);
  if(r)$('#cc').onclick=()=>{S.edit=null;S.view='historico';render()};
 }
-function saveRec(r){
+async function saveRec(r){
  const rec={data:$('#data').value,obs:$('#obs').value.trim()};let ok=true,any=false;
  document.querySelectorAll('.err').forEach(e=>e.textContent='');
  if(!rec.data||rec.data>today()){fe('data','Escolha uma data que não seja futura.');ok=false}
@@ -143,10 +142,11 @@ function saveRec(r){
   if(isNaN(n)||n<rules[k][0]||n>rules[k][1]){fe(k,`Informe um valor entre ${rules[k][0]} e ${rules[k][1]}.`);ok=false}else{rec[k]=n;if(k!=='altura')any=true}}
  if(ok&&!any){fe('peso','Preencha o peso ou ao menos uma medida.');ok=false}
  if(!ok){toast('Corrija os campos destacados.',1);return}
- if(r){Object.assign(r,rec);toast('Registro atualizado.')}
- else{DB.recs.push({id:uid(),uid:S.uid,...rec});toast('Registro salvo.')}
- if(rec.altura){const u=me();u.altura=rec.altura}
- save();S.edit=null;S.view='historico';render();
+ const res=r?await api('/api/registros/'+r.id,'PUT',rec):await api('/api/registros','POST',rec);
+ if(!res)return;
+ if(!res.ok){const er=res.data.erros||{};for(const c in er)fe(c,er[c]);toast(res.data.erro||'Corrija os campos destacados.',1);return}
+ toast(r?'Registro atualizado.':'Registro salvo.');
+ await loadRecs();S.edit=null;S.view='historico';render();
 }
 
 /* ---------- HISTÓRICO ---------- */
@@ -162,8 +162,8 @@ function historico(){
   $('#tb').innerHTML=f.length?f.map(r=>`<tr><td class="dt" data-l=""><b>${fd(r.data)}</b></td><td data-l="Peso">${nf(r.peso)}</td><td data-l="Altura">${nf(r.altura)}</td>${M.map(m=>`<td data-l="${m[1]}">${nf(r[m[0]])}</td>`).join('')}<td class="o">${esc(r.obs)}</td>
   <td class="ac"><div class="row" style="flex-wrap:nowrap"><button class="btn g" data-e="${r.id}">Editar</button><button class="btn d" data-x="${r.id}">Excluir</button></div></td></tr>`).join(''):`<tr><td colspan="11" class="empty">Nenhum registro neste período.</td></tr>`;
   document.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>{S.edit=b.dataset.e;S.view='registrar';render()});
-  document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{
-   if(b.dataset.c){DB.recs=DB.recs.filter(r=>r.id!==b.dataset.x);save();toast('Registro excluído.');historico();return}
+  document.querySelectorAll('[data-x]').forEach(b=>b.onclick=async()=>{
+   if(b.dataset.c){const x=await api('/api/registros/'+b.dataset.x,'DELETE');if(x&&x.ok){await loadRecs();toast('Registro excluído.');historico()}else if(x)toast(x.data.erro||'Erro ao excluir.',1);return}
    b.dataset.c=1;b.textContent='Confirmar?';setTimeout(()=>{if(b.isConnected){delete b.dataset.c;b.textContent='Excluir'}},3500)});};
  $('#d1').onchange=$('#d2').onchange=draw;draw();
 }
@@ -195,31 +195,28 @@ function perfil(){
  $('#main').innerHTML=`<h2>Perfil</h2><div class="card"><div class="f">
  <div><label for="pn">Nome</label><input id="pn" value="${esc(u.nome)}"><p class="err" id="e-pn"></p></div>
  <div><label for="pe">E-mail</label><input id="pe" type="email" value="${esc(u.email)}"><p class="err" id="e-pe"></p></div>
- <div><label for="pa">Altura (cm)</label><input id="pa" inputmode="decimal" value="${u.altura??''}"><p class="err" id="e-pa"></p></div>
- <div><label for="pd">Nascimento</label><input id="pd" type="date" max="${today()}" value="${u.nasc||''}"></div>
- <div class="full"><label for="ps">Nova senha (deixe em branco para manter)</label><input id="ps" type="password" autocomplete="new-password"><p class="err" id="e-ps"></p></div></div>
+ <div><label for="pd">Nascimento</label><input id="pd" type="date" max="${today()}" value="${u.nasc||''}"><p class="err" id="e-pd"></p></div>
+ <div><label for="ps">Nova senha (deixe em branco para manter)</label><input id="ps" type="password" autocomplete="new-password"><p class="err" id="e-ps"></p></div></div>
  <div class="row" style="margin-top:14px"><button class="btn" id="sp">Salvar perfil</button></div></div>
- <div class="card"><h3>Excluir conta</h3><p class="muted">Remove sua conta e todos os seus registros deste navegador.</p><button class="btn d" id="dx">Excluir minha conta</button></div>`;
+ <div class="card"><h3>Excluir conta</h3><p class="muted">Remove sua conta e todos os seus registros.</p><button class="btn d" id="dx">Excluir minha conta</button></div>`;
  $('#sp').onclick=async()=>{
-  ['pn','pe','pa','ps'].forEach(i=>fe(i));let ok=true;
-  const nome=$('#pn').value.trim(),email=$('#pe').value.trim().toLowerCase(),a=num($('#pa').value),s=$('#ps').value;
+  ['pn','pe','pd','ps'].forEach(i=>fe(i));
+  const nome=$('#pn').value.trim(),email=$('#pe').value.trim().toLowerCase(),nasc=$('#pd').value,senha=$('#ps').value;let ok=true;
   if(nome.length<2){fe('pn','Informe seu nome.');ok=false}
   if(!/^\S+@\S+\.\S+$/.test(email)){fe('pe','Informe um e-mail válido.');ok=false}
-  else if(DB.users.some(x=>x.email===email&&x.id!==u.id)){fe('pe','Este e-mail já está em uso.');ok=false}
-  if($('#pa').value.trim()!==''&&(isNaN(a)||a<80||a>250)){fe('pa','Informe uma altura entre 80 e 250.');ok=false}
-  if(s&&s.length<6){fe('ps','A senha precisa ter ao menos 6 caracteres.');ok=false}
+  if(senha&&senha.length<6){fe('ps','A senha precisa ter ao menos 6 caracteres.');ok=false}
   if(!ok)return;
-  u.nome=nome;u.email=email;u.altura=$('#pa').value.trim()===''?null:a;u.nasc=$('#pd').value;
-  if(s){u.salt=uid()+uid();u.hash=await hash(s,u.salt)}
-  save();toast('Perfil atualizado.');render();};
- $('#dx').onclick=function(){
+  const r=await api('/api/perfil','PUT',{nome,email,nasc,senha});
+  if(!r)return;
+  if(!r.ok){const er=r.data.erros||{},mp={nome:'pn',email:'pe',nasc:'pd',senha:'ps'};for(const c in er)fe(mp[c]||c,er[c]);return}
+  USER=r.data.usuario;toast('Perfil atualizado.');render();};
+ $('#dx').onclick=async function(){
   if(!this.dataset.c){this.dataset.c=1;this.textContent='Clique de novo para confirmar';return}
-  DB.recs=DB.recs.filter(r=>r.uid!==u.id);DB.users=DB.users.filter(x=>x.id!==u.id);save();logout();};
+  const r=await api('/api/perfil','DELETE');
+  if(r&&r.ok){USER=null;REC=[];S.reg=false;toast('Conta excluída.');render()}};
 }
 (async()=>{
- try{
-  const r=await fetch('/api/me');
-  if(r.ok){const d=await r.json();sync(d.usuario);S.uid=d.usuario.id}
- }catch(e){}
+ const r=await api('/api/me');
+ if(r&&r.ok){USER=r.data.usuario;await loadRecs()}
  render();
 })();
